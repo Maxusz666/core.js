@@ -47,9 +47,7 @@ describe("Smoke test", () => {
       },
     });
 
-    return octokit.request("GET /").then((response) => {
-      expect(response.data).toStrictEqual({ ok: true });
-    });
+    return octokit.request("GET /");
   });
 
   it("request option", () => {
@@ -60,15 +58,21 @@ describe("Smoke test", () => {
     });
 
     octokit.hook.wrap("request", (request, options) => {
+      // @ts-ignore
       expect(options.request.foo).toEqual("bar");
-      return "ok";
+      return {
+        data: { ok: true },
+        headers: {},
+        status: 200,
+        url: "https://example.com",
+      };
     });
 
     return octokit
       .request("/")
 
       .then((response) => {
-        expect(response).toEqual("ok");
+        expect(response.data.ok).toEqual(true);
       });
   });
 });

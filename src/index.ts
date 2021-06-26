@@ -6,6 +6,7 @@ import { createTokenAuth } from "@octokit/auth-token";
 
 import {
   Constructor,
+  Hooks,
   OctokitOptions,
   OctokitPlugin,
   RequestParameters,
@@ -44,7 +45,7 @@ export class Octokit {
       }
     };
 
-    return OctokitWithDefaults;
+    return OctokitWithDefaults as typeof this;
   }
 
   static plugins: OctokitPlugin[] = [];
@@ -65,16 +66,17 @@ export class Octokit {
       );
     };
 
-    return NewOctokit as typeof NewOctokit &
+    return NewOctokit as typeof this &
       Constructor<UnionToIntersection<ReturnTypeOf<T>>>;
   }
 
   constructor(options: OctokitOptions = {}) {
-    const hook = new Collection();
+    const hook = new Collection<Hooks>();
     const requestDefaults: Required<RequestParameters> = {
       baseUrl: request.endpoint.DEFAULTS.baseUrl,
       headers: {},
       request: Object.assign({}, options.request, {
+        // @ts-ignore internal usage only, no need to type
         hook: hook.bind(null, "request"),
       }),
       mediaType: {
@@ -104,10 +106,7 @@ export class Octokit {
     }
 
     this.request = request.defaults(requestDefaults);
-    this.graphql = withCustomRequest(this.request).defaults({
-      ...requestDefaults,
-      baseUrl: requestDefaults.baseUrl.replace(/\/api\/v3$/, "/api"),
-    });
+    this.graphql = withCustomRequest(this.request).defaults(requestDefaults);
     this.log = Object.assign(
       {
         debug: () => {},
@@ -120,7 +119,7 @@ export class Octokit {
     this.hook = hook;
 
     // (1) If neither `options.authStrategy` nor `options.auth` are set, the `octokit` instance
-    //     is unauthenticated. The `this.auth()` method is a no-op and no request hook is registred.
+    //     is unauthenticated. The `this.auth()` method is a no-op and no request hook is registered.
     // (2) If only `options.auth` is set, use the default token authentication strategy.
     // (3) If `options.authStrategy` is set then use it and pass in `options.auth`. Always pass own request as many strategies accept a custom request instance.
     // TODO: type `options.auth` based on `options.authStrategy`.
@@ -138,10 +137,19 @@ export class Octokit {
         this.auth = auth;
       }
     } else {
-      const auth = options.authStrategy(
+      const { authStrategy, ...otherOptions } = options;
+      const auth = authStrategy(
         Object.assign(
           {
             request: this.request,
+            log: this.log,
+            // we pass the current octokit instance as well as its constructor options
+            // to allow for authentication strategies that return a new octokit instance
+            // that shares the same internal state as the current one. The original
+            // requirement for this was the "event-octokit" authentication strategy
+            // of https://github.com/probot/octokit-auth-probot.
+            octokit: this,
+            octokitOptions: otherOptions,
           },
           options.auth
         )
@@ -169,10 +177,8 @@ export class Octokit {
     error: (message: string, additionalInfo?: object) => any;
     [key: string]: any;
   };
-  hook: HookCollection;
+  hook: HookCollection<Hooks>;
 
   // TODO: type `octokit.auth` based on passed options.authStrategy
   auth: (...args: unknown[]) => Promise<unknown>;
-
-  [key: string]: any;
 }
